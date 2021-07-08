@@ -167,7 +167,19 @@ class RNN:
         for param, dparam in zip(self.params, dparams):
             param -= dparam * learning_rate
 
-    def train(self, training_set, iters: int = 1_000, learning_rate: float = 1e-1, print_every=100, optimizer_name: str = 'adagrad', sample_prefix_length: int = 1, sample_length: int = 100, sample_tokenizer = str, plot_every=25, plot_color='b'):
+    def train(self,
+              training_set,
+              iters: int = 1_000,
+              learning_rate: float = 1e-1,
+              max_pass_length: int = 20,
+              optimizer_name: str = 'adagrad',
+              print_every: int = 100,
+              sample_prefix_length: int = 1,
+              sample_length: int = 100,
+              sample_tokenizer = str,
+              randomize_sample = False,
+              plot_every=None,
+              plot_color='b'):
         optimizer = {
             'gd': self.update,
             'rprop': self.update_rprop,
@@ -176,29 +188,37 @@ class RNN:
         loss_history = []
         smooth_loss = -np.log(1.0 / self.vocab_size) * \
             sum(len(targets) for _, targets in training_set)
-        plt.ylabel('Loss')
-        plt.show(block=False)
+        if plot_every:
+            plt.ylabel('Loss')
+            plt.show(block=False)
         for i in tqdm(range(iters)):
             if i % print_every == 0:
                 inputs, targets = random.choice(training_set)
-                sampled = self.sample(inputs[:sample_prefix_length], sample_length)
+                sampled = self.sample(
+                    inputs[:sample_prefix_length], sample_length, randomize_sample)
                 print('\n' + ''.join([sample_tokenizer(x) for x in sampled]))
 
             loss = 0
             dparams = [np.zeros_like(param) for param in self.params]
             for inputs, targets in training_set:
-                xs, hs, ys = self.forward(inputs)
-                loss += self.loss(ys, targets)
-                ddparams = self.backward(xs, hs, ys, targets)
-                for dparam, ddparam in zip(dparams, ddparams):
-                    dparam += ddparam
+                h = None
+                for start in range(0, len(inputs), max_pass_length):
+                    xs, hs, ys = self.forward(
+                        inputs[start:start + max_pass_length], h)
+                    h = hs[len(hs) - 2]
+                    loss += self.loss(ys,
+                                      targets[start:start + max_pass_length])
+                    ddparams = self.backward(
+                        xs, hs, ys, targets[start:start + max_pass_length])
+                    for dparam, ddparam in zip(dparams, ddparams):
+                        dparam += ddparam
 
             smooth_loss = smooth_loss * 0.99 + loss * 0.01
             loss_history.append(smooth_loss)
             optimizer(dparams, learning_rate)
             if i % print_every == 0:
                 print('Loss:', smooth_loss)
-            if i % plot_every == 0:
+            if plot_every and i % plot_every == 0:
                 plt.plot(loss_history, plot_color)
                 plt.pause(0.05)
 
