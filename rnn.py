@@ -1,7 +1,6 @@
 import numpy as np
 import diff_util
 from numpy.testing import assert_almost_equal
-from collections import namedtuple
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import random
@@ -49,9 +48,6 @@ diff_util.gradcheck(softmax_loss, (os, 1), [os], [
                     softmax_derivative(softmax(os), 1)], ['os'])
 
 
-Step = namedtuple('Step', 'x, h, o, y')
-
-
 class RNN:
     def __init__(self, vocab_size: int, hidden_dim: int, epsilon_init: float = 1e-5):
         # x, h, and y are all column vectors
@@ -65,7 +61,7 @@ class RNN:
         self.params = (self.Wxh, self.Whh, self.Why, self.bh, self.by)
         self.params_names = ('Wxh', 'Whh', 'Why', 'bh', 'by')
 
-        # For rprop:
+        # For rprop and adagrad:
         self.dparams_prev = tuple(np.zeros_like(param)
                                   for param in self.params)
         self.step_multiplers = tuple(np.ones_like(param)
@@ -96,43 +92,42 @@ class RNN:
         h = np.tanh(z)
         o = np.dot(self.Why, h) + self.by
         y = softmax(o)
-        return Step(x, h, o, y)
+        return x, h, y
 
     def forward(self, inputs, h=None):
         if h is None:
             h = np.zeros(self.h_shape)
-        history = {-1: Step(None, h, None, None)}
+        xs, hs, ys = {}, {-1: h}, {}
         for t, input in enumerate(inputs):
-            history[t] = self.forward_one_step(input, h)
-            h = history[t].h
-        return history
+            x, h, y = self.forward_one_step(input, h)
+            xs[t], hs[t], ys[t] = x, h, y
+        return xs, hs, ys
 
-    def sample(self, initial_input, length=100, randomize=False):
+    def sample(self, prefix, length, randomize=False):
+        res = [prefix[0]]
         h = np.zeros(self.h_shape)
-        res = [initial_input]
-        prev_output = initial_input
-        for _ in range(length):
-            step = self.forward_one_step(prev_output, h)
-            h = step.h
-            if randomize:
-                output = np.random.choice(
-                    range(self.vocab_size), p=step.y.ravel())
+        prev_output = prefix[0]
+        for i in range(length):
+            _, h, y = self.forward_one_step(prev_output, h)
+            if i + 1 < len(prefix):
+                prev_output = prefix[i + 1]
+            elif randomize:
+                prev_output = np.random.choice(
+                    range(self.vocab_size), p=y.ravel())
             else:
-                output = np.argmax(step.y)
-            res.append(output)
-            prev_output = output
+                prev_output = np.argmax(y)
+            res.append(prev_output)
         return res
 
-    def loss(self, history, targets):
-        assert len(history) == len(targets) + 1
-        ys = [history[t].y for t in range(len(targets))]
+    def loss(self, ys, targets):
+        assert len(ys) == len(targets)
         return np.sum(-np.log(ys[t][targets[t], 0] + np.spacing(0)) for t in range(len(ys)))
 
     def forward_loss(self, inputs, targets):
-        history = self.forward(inputs)
-        return self.loss(history, targets)
+        _, _, ys = self.forward(inputs)
+        return self.loss(ys, targets)
 
-    def backward(self, history, targets):
+    def backward(self, xs, hs, ys, targets):
         dWxh = np.zeros_like(self.Wxh)
         dWhh = np.zeros_like(self.Whh)
         dWhy = np.zeros_like(self.Why)
@@ -141,18 +136,18 @@ class RNN:
         dparams = (dWxh, dWhh, dWhy, dbh, dby)
         dhnext = np.zeros(self.h_shape)
         for t in reversed(range(len(targets))):
-            do = np.copy(history[t].y)
+            do = np.copy(ys[t])
             do[targets[t]] -= 1
-            dWhy += np.dot(do, history[t].h.T)
+            dWhy += np.dot(do, hs[t].T)
             dby += do
             dh = np.dot(self.Why.T, do) + dhnext
-            dz = (1 - history[t].h * history[t].h) * dh
+            dz = (1 - hs[t] * hs[t]) * dh
             dbh += dz
-            dWxh += np.dot(dz, history[t].x.T)
-            dWhh += np.dot(dz, history[t - 1].h.T)
+            dWxh += np.dot(dz, xs[t].T)
+            dWhh += np.dot(dz, hs[t - 1].T)
             dhnext = np.dot(self.Whh.T, dz)
-        # for dparam in dparams:
-        #     np.clip(dparam, -5, 5, out=dparam)
+        for dparam in dparams:
+            np.clip(dparam, -5, 5, out=dparam)
         return dparams
 
     def update_rprop(self, dparams, learning_rate):
@@ -172,7 +167,7 @@ class RNN:
         for param, dparam in zip(self.params, dparams):
             param -= dparam * learning_rate
 
-    def train(self, training_set, iters: int = 1_000, learning_rate: float = 1e-1, print_every=100, optimizer_name: str = 'adagrad', plot_every=25, plot_color='b'):
+    def train(self, training_set, iters: int = 1_000, learning_rate: float = 1e-1, print_every=100, optimizer_name: str = 'adagrad', sample_prefix_length: int = 1, sample_length: int = 100, sample_tokenizer = str, plot_every=25, plot_color='b'):
         optimizer = {
             'gd': self.update,
             'rprop': self.update_rprop,
@@ -186,15 +181,15 @@ class RNN:
         for i in tqdm(range(iters)):
             if i % print_every == 0:
                 inputs, targets = random.choice(training_set)
-                sampled = self.sample(inputs[0], len(targets))
-                print('\n' + ''.join([str(x) for x in sampled]))
+                sampled = self.sample(inputs[:sample_prefix_length], sample_length)
+                print('\n' + ''.join([sample_tokenizer(x) for x in sampled]))
 
             loss = 0
             dparams = [np.zeros_like(param) for param in self.params]
             for inputs, targets in training_set:
-                history = self.forward(inputs)
-                loss += self.loss(history, targets)
-                ddparams = self.backward(history, targets)
+                xs, hs, ys = self.forward(inputs)
+                loss += self.loss(ys, targets)
+                ddparams = self.backward(xs, hs, ys, targets)
                 for dparam, ddparam in zip(dparams, ddparams):
                     dparam += ddparam
 
