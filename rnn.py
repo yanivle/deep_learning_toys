@@ -14,8 +14,7 @@ def sigmoid_derivative(sigmoid_output):
     return sigmoid_output * (1 - sigmoid_output)
 
 
-assert_almost_equal(sigmoid_derivative(sigmoid(4)),
-                    diff_util.differentiate_at(sigmoid, 4))
+assert_almost_equal(sigmoid_derivative(sigmoid(4)), diff_util.differentiate_at(sigmoid, 4))
 
 
 def softmax_naive(x):
@@ -29,8 +28,7 @@ def softmax_stable(x):
 
 softmax = softmax_stable
 
-assert_almost_equal(softmax(np.array([range(3)])), [
-                    [0.09003057, 0.24472847, 0.66524096]])
+assert_almost_equal(softmax(np.array([range(3)])), [[0.09003057, 0.24472847, 0.66524096]])
 
 
 def softmax_derivative(ys, target: int):
@@ -44,8 +42,7 @@ def softmax_loss(os, target: int):
 
 
 os = np.array([[1., 2., 3.]])
-diff_util.gradcheck(softmax_loss, (os, 1), [os], [
-                    softmax_derivative(softmax(os), 1)], ['os'])
+diff_util.gradcheck(softmax_loss, (os, 1), [os], [softmax_derivative(softmax(os), 1)], ['os'])
 
 
 class RNN:
@@ -68,7 +65,7 @@ class RNN:
                                      for param in self.params)
 
     def __repr__(self) -> str:
-        return 'RNN(' + ', '.join([f'{name}:{getattr(self, name)}' for param, name in zip(self.params, self.params_names)]) + ')'
+        return 'RNN(' + ', '.join([f'{name}:{param}' for param, name in zip(self.params, self.params_names)]) + ')'
 
     def onehot(self, x: int) -> np.array:
         res = np.zeros((self.vocab_size, 1))
@@ -87,8 +84,7 @@ class RNN:
     def forward_one_step(self, input, hprev):
         assert np.isscalar(input), (input, type(input))
         x = self.onehot(input)
-        z = np.dot(self.Wxh, x) + \
-            np.dot(self.Whh, hprev) + self.bh
+        z = np.dot(self.Wxh, x) + np.dot(self.Whh, hprev) + self.bh
         h = np.tanh(z)
         o = np.dot(self.Why, h) + self.by
         y = softmax(o)
@@ -171,13 +167,13 @@ class RNN:
               training_set,
               iters: int = 1_000,
               learning_rate: float = 1e-1,
-              max_pass_length: int = 20,
+              max_pass_length: int = 32,
               optimizer_name: str = 'adagrad',
               print_every: int = 100,
               sample_prefix_length: int = 1,
               sample_length: int = 100,
-              sample_tokenizer = str,
-              randomize_sample = False,
+              sample_tokenizer=str,
+              randomize_sample=False,
               plot_every=None,
               plot_color='b'):
         optimizer = {
@@ -186,40 +182,31 @@ class RNN:
             'adagrad': self.update_adagrad,
         }[optimizer_name]
         loss_history = []
-        smooth_loss = -np.log(1.0 / self.vocab_size) * \
-            sum(len(targets) for _, targets in training_set)
+        smooth_loss = -np.log(1.0 / self.vocab_size) * sum(len(targets) for _, targets in training_set)
         if plot_every:
             plt.ylabel('Loss')
             plt.show(block=False)
-        for i in tqdm(range(iters)):
-            if i % print_every == 0:
-                inputs, targets = random.choice(training_set)
-                sampled = self.sample(
-                    inputs[:sample_prefix_length], sample_length, randomize_sample)
-                print('\n' + ''.join([sample_tokenizer(x) for x in sampled]))
-
-            loss = 0
-            dparams = [np.zeros_like(param) for param in self.params]
+        i = 0
+        while True:
             for inputs, targets in training_set:
                 h = None
                 for start in range(0, len(inputs), max_pass_length):
+                    if i % print_every == 0:
+                        inputs, targets = random.choice(training_set)
+                        sampled = self.sample(
+                            inputs[:sample_prefix_length], sample_length, randomize_sample)
+                        print('\n' + ''.join([sample_tokenizer(x) for x in sampled]))
                     xs, hs, ys = self.forward(
                         inputs[start:start + max_pass_length], h)
                     h = hs[len(hs) - 2]
-                    loss += self.loss(ys,
-                                      targets[start:start + max_pass_length])
-                    ddparams = self.backward(
-                        xs, hs, ys, targets[start:start + max_pass_length])
-                    for dparam, ddparam in zip(dparams, ddparams):
-                        dparam += ddparam
-
-            smooth_loss = smooth_loss * 0.99 + loss * 0.01
-            loss_history.append(smooth_loss)
-            optimizer(dparams, learning_rate)
-            if i % print_every == 0:
-                print('Loss:', smooth_loss)
-            if plot_every and i % plot_every == 0:
-                plt.plot(loss_history, plot_color)
-                plt.pause(0.05)
-
-        return loss_history
+                    loss = self.loss(ys, targets[start:start + max_pass_length])
+                    dparams = self.backward(xs, hs, ys, targets[start:start + max_pass_length])
+                    smooth_loss = smooth_loss * 0.99 + loss * 0.01
+                    loss_history.append(smooth_loss)
+                    optimizer(dparams, learning_rate)
+                    if i % print_every == 0:
+                        print(i, 'Loss:', smooth_loss)
+                    if plot_every and i % plot_every == 0:
+                        plt.plot(loss_history, plot_color)
+                        plt.pause(0.05)
+                    i += 1
