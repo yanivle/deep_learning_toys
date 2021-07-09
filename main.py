@@ -119,6 +119,6 @@ def load_text_from_file(filename, max_length: int = -1):
 print('Generating Tarantino...')
 data, char_to_index, index_to_char = load_text_from_file('./pulp_fiction.txt')
 print('Sample:', ''.join(index_to_char[x] for x in data[:100]))
-rnn = RNN(vocab_size=len(char_to_index), hidden_dim=64)
+rnn = RNN(vocab_size=len(char_to_index), hidden_dim=32)
 training_set = [sequence_to_inputs_and_targets(data)]
-RMSProp(rnn).train_autoregressive(training_set, 100_000, sample_tokenizer=lambda i: index_to_char[i], print_every=1_000, randomize_sample=True)
+AdaGrad(rnn).train_autoregressive(training_set, 100_000, sample_tokenizer=lambda i: index_to_char[i], print_every=1_000, randomize_sample=True)
