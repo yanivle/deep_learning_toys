@@ -28,5 +28,9 @@ def gradcheck(f, args, params, dparams, params_names, delta: float = 1e-5, epsil
     for dparam, dparam_approx, param_name in zip(dparams, dparams_approx, params_names):
         rel_err = abs(dparam_approx - dparam) / \
             abs(dparam_approx + dparam + np.spacing(1))
+        # print('Diffing', param_name)
+        # print('dparam:', dparam)
+        # print('dparam_approx:', dparam_approx)
+        # print('rel_err:', rel_err)
         assert (rel_err < epsilon).all(), (param_name,
                                            'dparam', dparam, 'dparam_approx', dparam_approx, 'rel_err', rel_err)

@@ -2,20 +2,54 @@ import numpy as np
 import matplotlib.pyplot as plt
 import random
 from tqdm import tqdm
+from models import Model
+import itertools
 
 
 class Optimizer:
-    def __init__(self, model, learning_rate: float = 1e-1) -> None:
-        self.learning_rate = learning_rate
+    def __init__(self, model:Model, learning_rate: float = 1e-1, l2_decay: float = 1e-3) -> None:
         self.model = model
+        self.learning_rate = learning_rate
+        self.l2_decay = l2_decay
 
     def update(self, dparams) -> None:
         raise NotImplemented()
 
+    def train(self,
+              training_set,
+              epochs: int = 100,
+              mini_batch_size: int = 100,
+              print_every: int = None,
+              plot_every=None,
+              plot_color='b'):
+        loss_history = []
+        smooth_loss = None
+        if plot_every:
+            plt.ylabel('Loss')
+            plt.show(block=False)
+        i = 0
+        for epoch in tqdm(range(epochs)):
+            for batch_start in range(0, len(training_set), mini_batch_size):
+                mini_batch = training_set[batch_start: batch_start + mini_batch_size]
+                for inputs, targets in mini_batch:
+                    activations, caches = self.model.forward(inputs)
+                    loss = self.model.loss(activations, targets)
+                    smooth_loss = smooth_loss * 0.99 + loss * 0.01 if smooth_loss is not None else loss
+                    loss_history.append(smooth_loss)
+                    dparams = self.model.backward(activations, caches, targets)
+                    dparams_flat = itertools.chain.from_iterable(dparams)
+                    self.update(dparams_flat)
+                    if print_every and i % print_every == 0:
+                        print(f'Epoch: {epoch}, iteration: {i}, loss: {smooth_loss}')
+                    if plot_every and i % plot_every == 0:
+                        plt.plot(loss_history, plot_color)
+                        plt.pause(0.05)
+                    i += 1
+        return loss_history
+
     def train_autoregressive(self,
                              training_set,
-                             iters: int = 101,
-                            #  iters: int = 1_000_000,
+                             iters: int = 1_000_000,
                              max_pass_length: int = 32,
                              print_every: int = None,
                              sample_prefix_length: int = 1,
@@ -63,17 +97,18 @@ class Optimizer:
 
 
 class GradientDescent(Optimizer):
-    def __init__(self, model, learning_rate: float = 1e-1) -> None:
-        super().__init__(model, learning_rate)
+    def __init__(self, model, learning_rate: float = 1e-1, l2_decay: float = 1e-3) -> None:
+        super().__init__(model, learning_rate, l2_decay)
 
     def update(self, dparams) -> None:
         for param, dparam in zip(self.model.params, dparams):
+            param *= (1 - self.l2_decay)
             param -= dparam * self.learning_rate
 
 
 class Momentum(Optimizer):
-    def __init__(self, model, learning_rate: float = 1e-3, momentum: float = 0.9) -> None:
-        super().__init__(model, learning_rate)
+    def __init__(self, model, learning_rate: float = 1e-3, momentum: float = 0.9, l2_decay: float = 1e-3) -> None:
+        super().__init__(model, learning_rate, l2_decay)
         self.momentum = momentum
         self.velocities = [np.zeros_like(param) for param in model.params]
 
@@ -81,12 +116,13 @@ class Momentum(Optimizer):
         for param, dparam, velocity in zip(self.model.params, dparams, self.velocities):
             velocity *= self.momentum
             velocity -= self.learning_rate * dparam
+            param *= (1 - self.l2_decay)
             param += velocity
 
 
 class Nesterov(Optimizer):
-    def __init__(self, model, learning_rate: float = 1e-3, momentum: float = 0.9) -> None:
-        super().__init__(model, learning_rate)
+    def __init__(self, model, learning_rate: float = 1e-3, momentum: float = 0.9, l2_decay: float = 1e-3) -> None:
+        super().__init__(model, learning_rate, l2_decay)
         self.momentum = momentum
         self.velocities = [np.zeros_like(param) for param in model.params]
 
@@ -94,26 +130,36 @@ class Nesterov(Optimizer):
         for param, dparam, velocity in zip(self.model.params, dparams, self.velocities):
             velocity *= self.momentum
             velocity -= self.learning_rate * dparam
+            param *= (1 - self.l2_decay)
             param += self.momentum * velocity - self.learning_rate * dparam
 
 
 class RProp(Optimizer):
-    def __init__(self, model, learning_rate: float = 1e-1) -> None:
+    def __init__(self, model, learning_rate: float = 1e-1, l2_decay: float = 1e-3,
+                 positive_factor: float = 1.2,
+                 negative_factor: float = 0.5,
+                 min_multiplier: float = 1e-6,
+                 max_multiplier: float = 50) -> None:
         super().__init__(model, learning_rate=learning_rate)
+        self.positive_factor = positive_factor
+        self.negative_factor = negative_factor
+        self.min_multiplier = min_multiplier
+        self.max_multiplier = max_multiplier
         self.dparams_prev = tuple(np.zeros_like(param) for param in self.model.params)
         self.step_multiplers = tuple(np.ones_like(param) for param in self.model.params)
 
     def update(self, dparams):
         for param, dparam, dparam_prev, step_multiplier in zip(self.model.params, dparams, self.dparams_prev, self.step_multiplers):
-            step_multiplier[np.sign(dparam) == np.sign(dparam_prev)] *= 1.2
-            step_multiplier[np.sign(dparam) != np.sign(dparam_prev)] /= 2
-            np.clip(step_multiplier, 1e-6, 50, out=step_multiplier)
+            step_multiplier[np.sign(dparam) == np.sign(dparam_prev)] *= self.positive_factor
+            step_multiplier[np.sign(dparam) != np.sign(dparam_prev)] *= self.negative_factor
+            np.clip(step_multiplier, self.min_multiplier, self.max_multiplier, out=step_multiplier)
             np.copyto(dparam_prev, dparam)
+            param *= (1 - self.l2_decay)
             param -= step_multiplier * self.learning_rate
 
 
 class RMSProp(Optimizer):
-    def __init__(self, model, learning_rate: float = 1e-2, decay:float=0.9) -> None:
+    def __init__(self, model, learning_rate: float = 1e-2, decay: float = 0.9) -> None:
         super().__init__(model, learning_rate=learning_rate)
         self.decay = decay
         self.mean_squares = tuple(np.ones_like(param) for param in self.model.params)
@@ -122,15 +168,17 @@ class RMSProp(Optimizer):
         for param, dparam, mean_square in zip(self.model.params, dparams, self.mean_squares):
             mean_square *= self.decay
             mean_square += (1. - self.decay) * (dparam * dparam)
+            param *= (1 - self.l2_decay)
             param -= self.learning_rate * dparam / np.sqrt(mean_square)
 
 
 class AdaGrad(Optimizer):
-    def __init__(self, model, learning_rate: float = 1e-1) -> None:
+    def __init__(self, model, learning_rate: float = 1e-1, l2_decay: float = 1e-3) -> None:
         super().__init__(model, learning_rate=learning_rate)
         self.dparams_prev = tuple(np.zeros_like(param) for param in self.model.params)
 
     def update(self, dparams):
         for param, dparam, dparam_prev in zip(self.model.params, dparams, self.dparams_prev):
             dparam_prev += dparam * dparam
+            param *= (1 - self.l2_decay)
             param -= dparam * self.learning_rate / np.sqrt(dparam_prev + 1e-8)
