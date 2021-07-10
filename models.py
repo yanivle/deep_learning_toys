@@ -42,7 +42,7 @@ class Sequential(Model):
         return f'Sequential({len(self.layers)} layers):\n  ' + '\n  '.join(repr(layer) for layer in self.layers)
 
     def details(self) -> str:
-        return f'Sequential({len(self.layers)} layers):\n  ' + '\n  '.join(layer.details() for layer in self.layers)
+        return f'Sequential({len(self.layers)} layers):\n  ' + '\n  '.join(str(i) + ' - ' + layer.details() for i, layer in enumerate(self.layers))
 
     def forward(self, x: np.ndarray) -> tuple[list[np.ndarray], list[dict]]:
         '''Returns activations, caches'''

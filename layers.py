@@ -1,6 +1,7 @@
 import numpy as np
 from util import sigmoid, sigmoid_derivative
 from util import sigmoid_derivative, softmax, softmax_loss_derivative
+import math
 
 
 class Layer:
@@ -55,11 +56,13 @@ class Layer:
 
 
 class FullyConnected(Layer):
-    def __init__(self, input_size: int, output_size: int, name: str = None, epsilon_init: float = 1e-5, bias_pref: float = 0):
+    def __init__(self, input_size: int, output_size: int, name: str = None, epsilon_init: float = None, bias_pref: float = 0):
         '''A fully connected linear layer.
 
         bias_pref can be set to a positive number (e.g. 0.1) when this is coupled with a Relu unit, to prevent 0 initial derivative.'''
         super().__init__(input_size, output_size, name=name)
+        # if epsilon_init is None:
+        epsilon_init = math.sqrt(1.0 / input_size)
         self.addParam('W', np.random.randn(output_size, input_size) * epsilon_init)
         self.addParam('b', np.zeros((self.output_size, 1)) + bias_pref)
 

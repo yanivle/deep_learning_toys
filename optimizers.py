@@ -36,6 +36,7 @@ class Optimizer:
               epochs: int = 100,
               mini_batch_size: int = 100,
               logging_function=default_logging_function,
+              learning_rate_decay:float = 1.,
               log_every=None):
         random.shuffle(training_set)
         loss_history = []
@@ -43,6 +44,7 @@ class Optimizer:
         i = 0
         for epoch in tqdm(range(epochs)):
             for batch_start in range(0, len(training_set), mini_batch_size):
+                self.learning_rate *= learning_rate_decay
                 mini_batch = training_set[batch_start: batch_start + mini_batch_size]
                 for inputs, targets in mini_batch:
                     activations, caches = self.model.forward(inputs)
@@ -51,9 +53,9 @@ class Optimizer:
                     loss_history.append(smooth_loss)
                     dparams = self.model.backward(activations, caches, targets)
                     dparams_flat = itertools.chain.from_iterable(dparams)
-                    self.update(dparams_flat)
                     if log_every and i % log_every == 0:
                         logging_function(epoch, i, loss_history)
+                    self.update(dparams_flat)
                     i += 1
         return loss_history
 
