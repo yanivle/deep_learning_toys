@@ -6,8 +6,24 @@ from models import Model
 import itertools
 
 
+def default_logging_function(epoch: int, i: int, loss_history: list[float]) -> None:
+    print(f'Epoch: {epoch}, iteration: {i}, loss: {loss_history[-1]}')
+
+
+class PlotLogger:
+    def __init__(self, color='b') -> None:
+        self.color = color
+        plt.ylabel('Loss')
+        plt.show(block=False)
+
+    def __call__(self, epoch: int, i: int, loss_history: list[float]) -> None:
+        plt.plot(loss_history, self.color)
+        plt.pause(0.05)
+        default_logging_function(epoch, i, loss_history)
+
+
 class Optimizer:
-    def __init__(self, model:Model, learning_rate: float = 1e-1, l2_decay: float = 1e-3) -> None:
+    def __init__(self, model: Model, learning_rate: float = 1e-1, l2_decay: float = 1e-3) -> None:
         self.model = model
         self.learning_rate = learning_rate
         self.l2_decay = l2_decay
@@ -19,14 +35,11 @@ class Optimizer:
               training_set,
               epochs: int = 100,
               mini_batch_size: int = 100,
-              print_every: int = None,
-              plot_every=None,
-              plot_color='b'):
+              logging_function=default_logging_function,
+              log_every=None):
+        random.shuffle(training_set)
         loss_history = []
         smooth_loss = None
-        if plot_every:
-            plt.ylabel('Loss')
-            plt.show(block=False)
         i = 0
         for epoch in tqdm(range(epochs)):
             for batch_start in range(0, len(training_set), mini_batch_size):
@@ -39,11 +52,8 @@ class Optimizer:
                     dparams = self.model.backward(activations, caches, targets)
                     dparams_flat = itertools.chain.from_iterable(dparams)
                     self.update(dparams_flat)
-                    if print_every and i % print_every == 0:
-                        print(f'Epoch: {epoch}, iteration: {i}, loss: {smooth_loss}')
-                    if plot_every and i % plot_every == 0:
-                        plt.plot(loss_history, plot_color)
-                        plt.pause(0.05)
+                    if log_every and i % log_every == 0:
+                        logging_function(epoch, i, loss_history)
                     i += 1
         return loss_history
 

@@ -14,6 +14,10 @@ class Model:
         '''Returns activations, caches'''
         raise NotImplementedError()
 
+    def predict(self, x: np.ndarray) -> np.ndarray:
+        '''Returns the last activation from forward.'''
+        return self.forward(x)[0][-1]
+
     def backward(self, activations: list[np.ndarray], caches: list[dict], targets: np.ndarray) -> list[np.ndarray]:
         raise NotImplementedError()
 
@@ -36,6 +40,9 @@ class Sequential(Model):
 
     def __repr__(self) -> str:
         return f'Sequential({len(self.layers)} layers):\n  ' + '\n  '.join(repr(layer) for layer in self.layers)
+
+    def details(self) -> str:
+        return f'Sequential({len(self.layers)} layers):\n  ' + '\n  '.join(layer.details() for layer in self.layers)
 
     def forward(self, x: np.ndarray) -> tuple[list[np.ndarray], list[dict]]:
         '''Returns activations, caches'''

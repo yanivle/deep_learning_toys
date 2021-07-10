@@ -20,6 +20,10 @@ class Layer:
         params_str = '\n  '.join([f'{name}({param.size} parameters)' for param, name in zip(self.params, self.params_names)])
         return f'Layer: {self.name}({self.num_params} parameters):\n  {params_str}'
 
+    def details(self) -> str:
+        params_str = '\n  '.join([f'{name}({param.size} parameters): {param}' for param, name in zip(self.params, self.params_names)])
+        return f'Layer: {self.name}({self.num_params} parameters):\n  {params_str}'
+
     @property
     def num_params(self) -> int:
         return sum(param.size for param in self.params)
@@ -172,7 +176,8 @@ class RegressionID(Layer):
         super().__init__(size, size, name=name)
 
     def forward(self, x: np.ndarray) -> tuple[np.ndarray, dict]:
-        return x, {}
+        # Probably don't have to copy here, but too lazy to make sure right now.
+        return np.copy(x), {}
 
     def backward(self, x: np.ndarray, dy: np.ndarray, cache: dict) -> tuple[list[np.ndarray], np.ndarray]:
         dparams = tuple()
